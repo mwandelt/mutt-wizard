@@ -102,6 +102,7 @@ prepmutt() {
 	! grep "^source.*.muttrc" "$muttrc" | grep -qv "$muttshare/mutt-wizard.muttrc" && echo "source $accdir/$fulladdr.muttrc" >>"$muttrc"
 	echo "macro index,pager i$idnum '<sync-mailbox><enter-command>source $accdir/$fulladdr.muttrc<enter><change-folder>!<enter>;<check-stats>' \"switch to $fulladdr\"" >>"$muttrc"
 	neomutt -v | grep -q lmdb && ! grep -q "^set header_cache_backend.*lmdb" "$muttrc" && echo "set header_cache_backend = \"lmdb\"" >>"$muttrc"
+	! neomutt -v | grep -qE '\+gsasl|\+sasl' && ! grep -q "^set smtp_authenticators" "$muttrc" && echo "set smtp_authenticators = 'login'" >>"$muttrc"
 }
 
 getprofiles() {
