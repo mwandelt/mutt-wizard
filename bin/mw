@@ -228,7 +228,21 @@ getboxes() {
 	else
 		info="$(curl --proxy "$proxy" --location-trusted -s -m 5 --user "$login:$(pass "$passprefix$fulladdr")" --url "${protocol:-imaps}://$imap:${iport:-993}")"
 		[ -z "$info" ] && errorexit
-		mailboxes="$(echo "$info" | grep -v HasChildren | sed "s/.*\" //;s/\"//g" | tr -d '\r')"
+		# \Noselect marks folders that cannot hold mail (e.g. pure containers);
+		# \HasChildren folders (e.g. "Archive" with subfolders) are kept, since
+		# they can still contain mail of their own.
+		mailboxes="$(echo "$info" | grep -v Noselect | tr -d '\r' | while IFS= read -r boxline; do
+			delim="$(printf '%s\n' "$boxline" | sed -n 's/^\* LIST ([^)]*) "\{0,1\}\([^" ]*\)"\{0,1\} .*/\1/p')"
+			name="$(printf '%s\n' "$boxline" | sed 's/.*\" //;s/\"//g')"
+			# mbsync canonicalizes the server's hierarchy delimiter to "/" and
+			# (with "Subfolders Verbatim") lays out subfolders as real nested
+			# directories, so the mailbox name must match that here too.
+			if [ -n "$delim" ] && [ "$delim" != "NIL" ] && [ "$delim" != "/" ]; then
+				delimesc="$(printf '%s' "$delim" | sed 's/[.\\^$*[]/\\&/g')"
+				name="$(printf '%s\n' "$name" | sed "s#$delimesc#/#g")"
+			fi
+			printf '%s\n' "$name"
+		done)"
 	fi
 	[ "$type" = "pop" ] && mailboxes="INBOX"
 	for x in $(
