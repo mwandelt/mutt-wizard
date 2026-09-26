@@ -31,19 +31,25 @@ maxmes="0"
 
 alias mbsync='mbsync -c "$mbsyncrc"'
 
-# mbsync >=1.4.0 requires "Far/Near" rather than "Master/Slave."
+# mbsync >=1.4.0 deprecates "Master/Slave" in favor of "Far/Near", and
+# >=1.5.0 renames the "SSLType" IMAPStore keyword to "TLSType".
 mbver="$(mbsync -v)"
 mbver="${mbver#* }"
 mbver="${mbver%.*}"
 # Comparing two float numbers in bash is a pain in the butt, so we get rid of
 # dots and turn them into nice integers
 mbver="${mbver/\./}"
-if [ "${mbver}" -gt 14 ]; then
+if [ "${mbver}" -ge 14 ]; then
 	master="Far"
 	slave="Near"
 else
 	master="Master"
 	slave="Slave"
+fi
+if [ "${mbver}" -ge 15 ]; then
+	tlstype="TLSType"
+else
+	tlstype="SSLType"
 fi
 
 for x in "/etc/ssl/certs/ca-certificates.crt" \
