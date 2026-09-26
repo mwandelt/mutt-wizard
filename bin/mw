@@ -219,7 +219,9 @@ Please be sure you either enable third-party applications, or create an app-spec
 
 getpass() { while :; do
 	pass rm -f "$passprefix$fulladdr" >/dev/null 2>&1
-	pass insert -f "$passprefix$fulladdr" && break
+	read -rsp "Password for $fulladdr: " password
+	echo
+	insertpass && break
 done; }
 
 getboxes() {
