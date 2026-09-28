@@ -8,6 +8,8 @@ muttshare="$prefix/share/mutt-wizard"
 cachedir="${XDG_CACHE_HOME:-$HOME/.cache}/mutt-wizard"
 muttrc="${XDG_CONFIG_HOME:-$HOME/.config}/mutt/muttrc"
 accdir="${XDG_CONFIG_HOME:-$HOME/.config}/mutt/accounts"
+unifiedmuttrc="${XDG_CONFIG_HOME:-$HOME/.config}/mutt/unified.muttrc"
+identitydir="${XDG_CONFIG_HOME:-$HOME/.config}/mutt/identity"
 msmtprc="${XDG_CONFIG_HOME:-$HOME/.config}/msmtp/config"
 msmtplog="${XDG_STATE_HOME:-$HOME/.local/state}/msmtp/msmtp.log"
 mbsyncrc="${MBSYNCRC:-$HOME/.mbsyncrc}"
@@ -111,6 +113,73 @@ prepmutt() {
 	! grep -q "^set smtp_authenticators" "$muttrc" && echo "set smtp_authenticators = '$smtpauth'" >>"$muttrc"
 }
 
+# Regenerates $unifiedmuttrc (and the per-account files under $identitydir it
+# points at) from scratch: enables $sidebar_new_mail_only, then a
+# named-mailboxes entry for every account's INBOX
+# (whatever the account's own "set folder" resolved to, local Maildir or
+# remote IMAP URL alike), plus a folder-hook that fixes up the account's
+# identity (from/sendmail/folder/spool_file/...) the moment its tree is
+# entered - without resetting the mailboxes list or $sidebar_new_mail_only,
+# so the filtered overview stays in effect while reading mail. (Contrast
+# with the full per-account "i<N>" macros, which source the account's own
+# muttrc file directly and DO reset both - a deliberate full switch.) Called
+# after any change to the account list so the "iu" overview macro (wired
+# into $muttrc below, once) always reflects the current accounts.
+genunified() {
+	getaccounts
+	rm -rf "$identitydir"
+	mkdir -p "${unifiedmuttrc%/*}" "$identitydir"
+	{
+		echo "unhook folder-hook"
+		echo "unmailboxes *"
+		echo "set sidebar_new_mail_only = yes"
+		echo "$accounts" | awk '{print $2}' | while IFS= read -r addr; do
+			[ -z "$addr" ] && continue
+			acctfile="$accdir/$addr.muttrc"
+			folder="$(sed -n 's/^set folder = "\(.*\)"$/\1/p' "$acctfile" | head -n1)"
+			[ -z "$folder" ] && continue
+			escfolder="$(printf '%s' "$folder" | sed 's/[.\\^$*[]/\\&/g')"
+			identfile="$identitydir/$addr.muttrc"
+			# Strip the switch.muttrc include (unmailboxes *, unset
+			# sidebar_new_mail_only) and this account's own mailbox list -
+			# "named-mailboxes" for accounts added by current mw, or the
+			# older plain "mailboxes" form for accounts added before that
+			# feature existed - the things that would undo the unified
+			# overview - and keep everything else (real_name/from/sendmail/
+			# folder/spool_file/trash/...) as the identity a folder-hook
+			# needs.
+			sed '/^source .*\/switch\.muttrc$/d; /^named-mailboxes /d; /^mailboxes /d' "$acctfile" >"$identfile"
+			printf 'named-mailboxes "%s" "%s/INBOX"\n' "$addr" "$folder"
+			# No leading "^": neomutt treats a folder-hook pattern starting
+			# with "^" as its own current-mailbox path shortcut rather than
+			# a regex anchor, which errors out before regex matching ever
+			# happens. The escaped absolute path is specific enough on its
+			# own as an unanchored match.
+			printf "folder-hook '%s/' 'source \"%s\"'\n" "$escfolder" "$identfile"
+		done
+	} >"$unifiedmuttrc"
+	mkdir -p "${muttrc%/*}"
+	[ ! -f "$muttrc" ] && echo "# vim: filetype=neomuttrc" >"$muttrc"
+	# Not sourced unconditionally: the default account's own muttrc is
+	# already sourced at startup, and loading $unifiedmuttrc on top of that
+	# would immediately unmailboxes its full folder list. Only the "iu"
+	# macro below loads it, on demand.
+	# <check-stats><sidebar-next-new><sidebar-open> after sourcing: neomutt's
+	# sidebar never hides the mailbox that's currently open, filter or no
+	# filter, so without this the previously-open mailbox (typically the
+	# default account's own INBOX) keeps showing up even with 0 new mail -
+	# jumping to the first mailbox that actually has new mail clears that
+	# leftover. check-stats has to run FIRST: the freshly (re-)registered
+	# mailboxes have no known new-mail status yet, so sidebar-next-new finds
+	# nothing to jump to until their counts have actually been polled.
+	# Always rewritten (not just inserted-if-absent): unlike the per-account
+	# lines above, this one's definition has kept changing, and a stale copy
+	# from an older mw would otherwise never get updated again.
+	sed -ibu "/^macro index,pager iu /d" "$muttrc" 2>/dev/null
+	rm -f "$muttrc"bu
+	echo "macro index,pager iu '<sync-mailbox><enter-command>source $unifiedmuttrc<enter><check-stats><sidebar-next-new><sidebar-open>' \"unified inbox overview (new mail only)\"" >>"$muttrc"
+}
+
 getprofiles() {
 	safename="$(echo $fulladdr | sed 's/@/_/g')"
 	case "$type" in
@@ -185,6 +254,7 @@ delete() {
 	[ -f "$mpoprc" ] && delacctblock "$mpoprc" "$fulladdr"
 	pass rm -f "$passprefix$fulladdr" >/dev/null 2>&1
 	[ -n "${purge+x}" ] && safename="$(echo $fulladdr | sed 's/@/_/g')" && rm -rf "${cachedir:?}/${safename:?}" "${maildir:?}/${fulladdr:?}"
+	genunified
 }
 
 askinfo() {
@@ -335,6 +405,7 @@ finalize() {
 	echo "$toappend" >>"$accdir/$fulladdr.muttrc"
 	[ "$type" != "online" ] && echo "$mailboxes" | xargs -I {} mkdir -p "$maildir/$fulladdr/{}/cur" "$maildir/$fulladdr/{}/tmp" "$maildir/$fulladdr/{}/new"
 	mkdir -p "$cachedir/$safename/bodies"
+	genunified
 	echo "$fulladdr (account #$idnum) added successfully."
 	command -V urlview >/dev/null 2>&1 && [ ! -f "$HOME/.urlview" ] && echo "COMMAND \$BROWSER" >"$HOME/.urlview"
 	return 0
@@ -382,6 +453,7 @@ Main actions:
   -t number		Toggle automatic mailsync every <number> minutes
   -T			Toggle automatic mailsync
   -r			Reorder account numbers
+  -U			Regenerate the "iu" unified inbox overview
 
 Options allowed with -a:
   -u	Account login name if not full address
@@ -429,7 +501,7 @@ reorder() {
 	' "$tempfile" >>"$muttrc"
 }
 
-while getopts "rfpXlhodTYD:y:i:I:s:S:u:a:n:P:x:m:t:R:" o; do case "${o}" in
+while getopts "rfpXlhodTUYD:y:i:I:s:S:u:a:n:P:x:m:t:R:" o; do case "${o}" in
 	l) setact list ;;
 	r) setact reorder ;;
 	R) proxy="$OPTARG" ;;
@@ -506,6 +578,7 @@ while getopts "rfpXlhodTYD:y:i:I:s:S:u:a:n:P:x:m:t:R:" o; do case "${o}" in
 		cronmin="$OPTARG"
 		;;
 	T) setact toggle ;;
+	U) setact unified ;;
 	h) setact info ;;
 	\?)
 		echo "See \`$(basename $0) -h\` for possible options and help."
@@ -525,6 +598,7 @@ sync)
 	;;
 toggle) togglecron ;;
 reorder) reorder ;;
+unified) genunified && echo "Unified inbox overview (re)generated." ;;
 info)
 	mwinfo
 	exit 1
