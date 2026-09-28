@@ -302,10 +302,14 @@ getboxes() {
 	# UTF-7 (RFC 3501 5.1.3), and mbsync stores them on disk exactly as
 	# received (Subfolders Verbatim). The "=..." path below must therefore
 	# stay in that raw wire form, but named-mailboxes lets us additionally
-	# attach a decoded, human-readable label for the sidebar (%D).
+	# attach a decoded, human-readable label for the sidebar (%D) - just the
+	# leaf segment, indented and prefixed with a tree connector to show its
+	# nesting depth (the ancestors already have their own label line).
 	labels="$(printf '%s\n' "$mailboxes" | perl -CS -MMIME::Base64 -ne '
 		chomp;
-		my $s = $_;
+		my @segs = split m{/}, $_, -1;
+		my $depth = $#segs;
+		my $s = $segs[-1];
 		$s =~ s{
 			& ([^-]*) -
 		}{
@@ -318,7 +322,8 @@ getboxes() {
 				join("", map { chr($_) } unpack("n*", $bytes));
 			}
 		}gex;
-		print "$s\n";
+		my $prefix = $depth > 0 ? (" " x (1 + ($depth - 1) * 3)) . "\x{2514}\x{2500} " : "";
+		print "$prefix$s\n";
 	')"
 	toappend="named-mailboxes $(paste -d' ' \
 		<(echo "$labels" | sed "s/^/\"/;s/\$/\"/;s/'/\\\'/g") \
