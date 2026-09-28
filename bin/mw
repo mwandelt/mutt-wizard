@@ -275,6 +275,22 @@ getboxes() {
 		done)"
 	fi
 	[ "$type" = "pop" ] && mailboxes="INBOX"
+	# Order the sidebar sensibly: INBOX first, then the common function
+	# folders in a fixed order, then everything else alphabetically.
+	mailboxes="$(printf '%s\n' "$mailboxes" | awk -F'/' '
+		{
+			top = tolower($1)
+			if (top == "inbox")                    rank = 0
+			else if (top == "drafts")               rank = 1
+			else if (top == "sent")                 rank = 2
+			else if (top == "junk" || top == "spam") rank = 3
+			else if (top == "trash")                rank = 4
+			else if (top == "archive" || top == "archives") rank = 5
+			else if (top == "templates")            rank = 6
+			else                                     rank = 9
+			printf "%d\t%s\t%s\n", rank, tolower($0), $0
+		}
+	' | sort -t "$(printf '\t')" -k1,1n -k2,2 | cut -f3)"
 	for x in $(
 		sed -n "/^macro.* i[0-9] / s/\(^macro.* i\| .*\)//gp " "$muttrc" 2>/dev/null | sort -u
 		echo 0
