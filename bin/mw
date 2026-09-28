@@ -235,12 +235,21 @@ getboxes() {
 	else
 		info="$(curl --proxy "$proxy" --location-trusted -s -m 5 --user "$login:$(pass "$passprefix$fulladdr")" --url "${protocol:-imaps}://$imap:${iport:-993}")"
 		[ -z "$info" ] && errorexit
+		# Some servers (mbox-based Courier/UW-IMAP-style setups) prefix every
+		# personal folder with "INBOX<delim>" on the wire even though those
+		# folders are not actually nested under INBOX. NAMESPACE reports that
+		# prefix (if any), so it can be stripped before the delimiter is
+		# translated below; servers without NAMESPACE, or with an empty
+		# personal-namespace prefix, are unaffected.
+		nsline="$(curl --proxy "$proxy" --location-trusted -s -m 5 --user "$login:$(pass "$passprefix$fulladdr")" --url "${protocol:-imaps}://$imap:${iport:-993}" -X 'NAMESPACE' 2>/dev/null | grep '^\* NAMESPACE' | head -n1)"
+		nsprefix="$(printf '%s\n' "$nsline" | sed -n 's/^\* NAMESPACE (("\([^"]*\)" *"[^"]*".*/\1/p')"
 		# \Noselect marks folders that cannot hold mail (e.g. pure containers);
 		# \HasChildren folders (e.g. "Archive" with subfolders) are kept, since
 		# they can still contain mail of their own.
 		mailboxes="$(echo "$info" | grep -v Noselect | tr -d '\r' | while IFS= read -r boxline; do
 			delim="$(printf '%s\n' "$boxline" | sed -n 's/^\* LIST ([^)]*) "\{0,1\}\([^" ]*\)"\{0,1\} .*/\1/p')"
 			name="$(printf '%s\n' "$boxline" | sed 's/.*\" //;s/\"//g')"
+			[ -n "$nsprefix" ] && name="${name#"$nsprefix"}"
 			# mbsync canonicalizes the server's hierarchy delimiter to "/" and
 			# (with "Subfolders Verbatim") lays out subfolders as real nested
 			# directories, so the mailbox name must match that here too.
