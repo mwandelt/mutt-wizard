@@ -76,6 +76,7 @@ list() { getaccounts && [ -n "$accounts" ] && echo "$accounts" || exit 1; }
 
 prepmsmtp() {
 	mkdir -p "${msmtprc%/*}" "${msmtplog%/*}"
+	[ -f "$msmtprc" ] && echo >>"$msmtprc"
 	envsubst <"$msmtptemp" >>"$msmtprc"
 }
 
@@ -87,6 +88,7 @@ prepmbsync() {
 
 prepmpop() {
 	mkdir -p "${mpoprc%/*}"
+	[ -f "$mpoprc" ] && echo >>"$mpoprc"
 	envsubst <"$mpoptemp" >>"$mpoprc"
 }
 
@@ -145,6 +147,20 @@ EOF
 	iport="${iport:-$iportsugg}"
 }
 
+# Removes the "account $2" block from the msmtp/mpop-style config file $1,
+# stopping at (without consuming) the next "account " line so a missing
+# blank-line separator between blocks can never make this eat the next
+# account's header line too.
+delacctblock() {
+	awk -v acct="account $2" '
+		$0 == acct { skip=1; next }
+		skip && /^account / { skip=0; print; next }
+		skip && /^[ \t]*$/ { skip=0; next }
+		skip { next }
+		{ print }
+	' "$1" >"$1.mwtmp" && mv "$1.mwtmp" "$1"
+}
+
 delete() {
 	if [ -z "${fulladdr+x}" ]; then
 		echo "Select the account you would like to delete (by number):"
@@ -165,10 +181,8 @@ delete() {
 	rm -rf "${cachedir:?}/${fulladdr:?}" "$accdir/$fulladdr.muttrc" "$accdir/"[0-9]-"$fulladdr.muttrc"
 	sed -ibu "/\([0-9]-\)\?$fulladdr.muttrc/d" "$muttrc" 2>/dev/null
 	rm -f "$muttrc"bu
-	sed -ibu "/account $fulladdr$/,/^\(\s*$\|account\)/d" "$msmtprc" 2>/dev/null
-	rm -f "$msmtprc"bu
-	sed -ibu "/account $fulladdr$/,/^\(\s*$\|account\)/d" "$mpoprc" 2>/dev/null
-	rm -f "$mpoprc"bu
+	[ -f "$msmtprc" ] && delacctblock "$msmtprc" "$fulladdr"
+	[ -f "$mpoprc" ] && delacctblock "$mpoprc" "$fulladdr"
 	pass rm -f "$passprefix$fulladdr" >/dev/null 2>&1
 	[ -n "${purge+x}" ] && safename="$(echo $fulladdr | sed 's/@/_/g')" && rm -rf "${cachedir:?}/${safename:?}" "${maildir:?}/${fulladdr:?}"
 }
