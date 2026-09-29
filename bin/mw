@@ -115,26 +115,28 @@ prepmutt() {
 }
 
 # Regenerates $unifiedmuttrc (and the per-account files under $identitydir it
-# points at) from scratch: enables $sidebar_new_mail_only, then a
-# named-mailboxes entry for every account's INBOX
+# points at) from scratch: a named-mailboxes entry for every account's INBOX
 # (whatever the account's own "set folder" resolved to, local Maildir or
 # remote IMAP URL alike), plus a folder-hook that fixes up the account's
 # identity (from/sendmail/folder/spool_file/...) the moment its tree is
-# entered - without resetting the mailboxes list or $sidebar_new_mail_only,
-# so the filtered overview stays in effect while reading mail. (Contrast
-# with the full per-account "i<N>" macros, which source the account's own
-# muttrc file directly and DO reset both - a deliberate full switch.) Called
-# after any change to the account list so the "iu" overview macro (wired
-# into $muttrc below, once) always reflects the current accounts.
+# entered - without resetting the mailboxes list, so the overview stays in
+# effect while reading mail. (Contrast with the full per-account "i<N>"
+# macros, which source the account's own muttrc file directly and DO reset
+# it - a deliberate full switch.) Entries are registered in "i<N>" order (not
+# $accounts' arbitrary find(1) order) and labelled with their number, since
+# neomutt's sidebar defaults to showing mailboxes in registration order -
+# this way the overview visually lines up with the keys that jump to each
+# account. Called after any change to the account list so the "iu" overview
+# macro (wired into $muttrc below, once) always reflects the current
+# accounts.
 genunified() {
-	getaccounts
 	rm -rf "$identitydir"
 	mkdir -p "${unifiedmuttrc%/*}" "$identitydir"
 	{
 		echo "unhook folder-hook"
 		echo "unmailboxes *"
-		echo "set sidebar_new_mail_only = yes"
-		echo "$accounts" | awk '{print $2}' | while IFS= read -r addr; do
+		sed -n 's/^macro index,pager i\([0-9][0-9]*\) .*"switch to \(.*\)"$/\1 \2/p' "$muttrc" 2>/dev/null |
+			sort -n -k1,1 | while read -r idnum addr; do
 			[ -z "$addr" ] && continue
 			acctfile="$accdir/$addr.muttrc"
 			folder="$(sed -n 's/^set folder = "\(.*\)"$/\1/p' "$acctfile" | head -n1)"
@@ -150,7 +152,7 @@ genunified() {
 			# folder/spool_file/trash/...) as the identity a folder-hook
 			# needs.
 			sed '/^source .*\/switch\.muttrc$/d; /^named-mailboxes /d; /^mailboxes /d' "$acctfile" >"$identfile"
-			printf 'named-mailboxes "%s" "%s/INBOX"\n' "$addr" "$folder"
+			printf 'named-mailboxes "%s %s" "%s/INBOX"\n' "$idnum" "$addr" "$folder"
 			# No leading "^": neomutt treats a folder-hook pattern starting
 			# with "^" as its own current-mailbox path shortcut rather than
 			# a regex anchor, which errors out before regex matching ever
@@ -165,20 +167,12 @@ genunified() {
 	# already sourced at startup, and loading $unifiedmuttrc on top of that
 	# would immediately unmailboxes its full folder list. Only the "iu"
 	# macro below loads it, on demand.
-	# <check-stats><sidebar-next-new><sidebar-open> after sourcing: neomutt's
-	# sidebar never hides the mailbox that's currently open, filter or no
-	# filter, so without this the previously-open mailbox (typically the
-	# default account's own INBOX) keeps showing up even with 0 new mail -
-	# jumping to the first mailbox that actually has new mail clears that
-	# leftover. check-stats has to run FIRST: the freshly (re-)registered
-	# mailboxes have no known new-mail status yet, so sidebar-next-new finds
-	# nothing to jump to until their counts have actually been polled.
 	# Always rewritten (not just inserted-if-absent): unlike the per-account
 	# lines above, this one's definition has kept changing, and a stale copy
 	# from an older mw would otherwise never get updated again.
 	sed -ibu "/^macro index,pager iu /d" "$muttrc" 2>/dev/null
 	rm -f "$muttrc"bu
-	echo "macro index,pager iu '<sync-mailbox><enter-command>source $unifiedmuttrc<enter><check-stats><sidebar-next-new><sidebar-open>' \"unified inbox overview (new mail only)\"" >>"$muttrc"
+	echo "macro index,pager iu '<sync-mailbox><enter-command>source $unifiedmuttrc<enter><check-stats>' \"unified inbox overview\"" >>"$muttrc"
 	# "Load the unified view at startup" preference: $unifiedstartup, if the
 	# caller set it (via "mw -U startup"/"mw -U nostartup"), turns it on/off
 	# for good; otherwise keep whatever was set before, so a plain
