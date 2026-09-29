@@ -32,8 +32,10 @@ imapssl="IMAPS"
 tlsline="tls_starttls off"
 maxmes="0"
 draftsbox="Drafts"
+junkbox="Junk"
 trashbox="Trash"
 sentbox="Sent"
+archivebox="Archive"
 
 alias mbsync='mbsync -c "$mbsyncrc"'
 
@@ -154,7 +156,14 @@ genunified() {
 			# overview - and keep everything else (real_name/from/sendmail/
 			# folder/spool_file/trash/...) as the identity a folder-hook
 			# needs.
-			sed '/^source .*\/switch\.muttrc$/d; /^named-mailboxes /d; /^mailboxes /d' "$acctfile" >"$identfile"
+			# The switch.muttrc defaults for the $my_* folder macros are kept
+			# though, ahead of the account's own values: accounts added
+			# before those existed don't set them, and would otherwise
+			# inherit whatever the previously entered account set.
+			{
+				grep '^set my_' "$muttshare/switch.muttrc"
+				sed '/^source .*\/switch\.muttrc$/d; /^named-mailboxes /d; /^mailboxes /d' "$acctfile"
+			} >"$identfile"
 			printf 'named-mailboxes "%s %s" "%s/INBOX"\n' "$idnum" "$addr" "$folder"
 			# No leading "^": neomutt treats a folder-hook pattern starting
 			# with "^" as its own current-mailbox path shortcut rather than
@@ -226,7 +235,7 @@ getprofiles() {
 		# Never emit the unprefixed default first and override it later:
 		# neomutt resolves mailbox variables against the server as soon as
 		# they're set, so even a transient wrong value produces an error.
-		for role in drafts trash sent; do
+		for role in drafts junk trash sent archive; do
 			box="$(printf '%s\n' "$mailboxes" | awk -F'\t' -v r="$role" 'tolower($1)==r{print $2; exit}')"
 			[ -n "$box" ] && printf -v "${role}box" '%s' "$box"
 		done

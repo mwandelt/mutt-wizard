@@ -8,3 +8,8 @@ unmy_hdr Organization
 unmailboxes *
 unalternates *
 unset signature
+set my_drafts = "=Drafts"
+set my_junk = "=Junk"
+set my_trash = "=Trash"
+set my_sent = "=Sent"
+set my_archive = "=Archive"
