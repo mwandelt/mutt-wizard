@@ -10,6 +10,7 @@ muttrc="${XDG_CONFIG_HOME:-$HOME/.config}/mutt/muttrc"
 accdir="${XDG_CONFIG_HOME:-$HOME/.config}/mutt/accounts"
 unifiedmuttrc="${XDG_CONFIG_HOME:-$HOME/.config}/mutt/unified.muttrc"
 identitydir="${XDG_CONFIG_HOME:-$HOME/.config}/mutt/identity"
+labelsmuttrc="${XDG_CONFIG_HOME:-$HOME/.config}/mutt/labels.muttrc"
 unifiedstartupflag="${XDG_CONFIG_HOME:-$HOME/.config}/mutt/.unified-startup"
 msmtprc="${XDG_CONFIG_HOME:-$HOME/.config}/msmtp/config"
 msmtplog="${XDG_STATE_HOME:-$HOME/.local/state}/msmtp/msmtp.log"
@@ -119,6 +120,12 @@ prepmutt() {
 	! grep -q "^set smtp_authenticators" "$muttrc" && echo "set smtp_authenticators = '$smtpauth'" >>"$muttrc"
 }
 
+# Name of the neomutt variable holding an account's sidebar label in the
+# unified overview: "my_label_" plus the address with everything but
+# letters and digits turned into "_", since neomutt variable names can't
+# contain "@" or ".".
+labelvar() { printf 'my_label_%s' "$(printf '%s' "$1" | tr -c 'A-Za-z0-9' '_')"; }
+
 # Regenerates $unifiedmuttrc (and the per-account files under $identitydir it
 # points at) from scratch: a named-mailboxes entry for every account's INBOX
 # (whatever the account's own "set folder" resolved to, local Maildir or
@@ -134,13 +141,25 @@ prepmutt() {
 # account. Called after any change to the account list so the "iu" overview
 # macro (wired into $muttrc below, once) always reflects the current
 # accounts.
+# The sidebar label after the number is read from a $my_label_* variable
+# (see labelvar) set in $labelsmuttrc, which belongs to the user: mw only
+# appends a default (the full address) for accounts that don't have an
+# entry yet and never rewrites existing ones, so labels edited there
+# survive every regeneration. It is sourced from $unifiedmuttrc itself,
+# right where the labels are needed - both "iu" and the startup load pick
+# up an edit without rerunning mw.
 genunified() {
 	rm -rf "$identitydir"
 	mkdir -p "${unifiedmuttrc%/*}" "$identitydir"
+	[ -f "$labelsmuttrc" ] || printf '%s\n' \
+		'# vim: filetype=neomuttrc' \
+		'# Sidebar labels for the unified inbox overview ("iu"), one per account.' \
+		'# Edit the values freely; mw only adds entries for new accounts.' >"$labelsmuttrc"
 	{
 		echo "unhook folder-hook"
 		echo "unhook account-hook"
 		echo "unmailboxes *"
+		echo "source \"$labelsmuttrc\""
 		sed -n 's/^macro index,pager i\([0-9][0-9]*\) .*"switch to \(.*\)"$/\1 \2/p' "$muttrc" 2>/dev/null |
 			sort -n -k1,1 | while read -r idnum addr; do
 			[ -z "$addr" ] && continue
@@ -178,7 +197,10 @@ genunified() {
 			creds="$(grep -E '^set imap_(user|pass) = ' "$acctfile" | paste -sd';' -)"
 			[ -n "$creds" ] && printf "account-hook '%s' '%s'\n" \
 				"$(printf '%s' "$escfolder" | sed 's/%40/(%40|@)/; s/:\([0-9]*\)$/(:\1)?/')" "$creds"
-			printf 'named-mailboxes "%s %s" "%s/INBOX"\n' "$idnum" "$addr" "$folder"
+			label="$(labelvar "$addr")"
+			grep -q "^set $label = " "$labelsmuttrc" ||
+				printf 'set %s = "%s"\n' "$label" "$addr" >>"$labelsmuttrc"
+			printf 'named-mailboxes "%s $%s" "%s/INBOX"\n' "$idnum" "$label" "$folder"
 			# No leading "^": neomutt treats a folder-hook pattern starting
 			# with "^" as its own current-mailbox path shortcut rather than
 			# a regex anchor, which errors out before regex matching ever
@@ -321,6 +343,8 @@ delete() {
 	rm -rf "${cachedir:?}/${fulladdr:?}" "$accdir/$fulladdr.muttrc" "$accdir/"[0-9]-"$fulladdr.muttrc"
 	sed -ibu "/\([0-9]-\)\?$fulladdr.muttrc/d" "$muttrc" 2>/dev/null
 	rm -f "$muttrc"bu
+	sed -ibu "/^set $(labelvar "$fulladdr") = /d" "$labelsmuttrc" 2>/dev/null
+	rm -f "$labelsmuttrc"bu
 	[ -f "$msmtprc" ] && delacctblock "$msmtprc" "$fulladdr"
 	[ -f "$mpoprc" ] && delacctblock "$mpoprc" "$fulladdr"
 	pass rm -f "$passprefix$fulladdr" >/dev/null 2>&1
