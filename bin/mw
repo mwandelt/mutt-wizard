@@ -31,6 +31,9 @@ sport="465"
 imapssl="IMAPS"
 tlsline="tls_starttls off"
 maxmes="0"
+draftsbox="Drafts"
+trashbox="Trash"
+sentbox="Sent"
 
 alias mbsync='mbsync -c "$mbsyncrc"'
 
@@ -210,8 +213,23 @@ getprofiles() {
 	safename="$(echo $fulladdr | sed 's/@/_/g')"
 	case "$type" in
 	online)
-		folder="imaps://$login@$imap:$iport"
+		# $login is itself an email address for most providers, so it
+		# contains its own "@" - percent-encode it here so the URL's
+		# user@host delimiter stays unambiguous (imap_user, set
+		# separately in online-temp, keeps the unescaped address).
+		folder="imaps://${login//@/%40}@$imap:$iport"
 		extra="$(envsubst <"$onlinetemp")"
+		# The Drafts/Trash/Sent defaults match a local Maildir (mbsync
+		# always creates clean, unprefixed directories), but an online
+		# account talks to the server directly, so use the wire name
+		# getboxes() found for each role - including any namespace prefix.
+		# Never emit the unprefixed default first and override it later:
+		# neomutt resolves mailbox variables against the server as soon as
+		# they're set, so even a transient wrong value produces an error.
+		for role in drafts trash sent; do
+			box="$(printf '%s\n' "$mailboxes" | awk -F'\t' -v r="$role" 'tolower($1)==r{print $2; exit}')"
+			[ -n "$box" ] && printf -v "${role}box" '%s' "$box"
+		done
 		;;
 	pop) prepmpop ;;
 	*)
@@ -340,16 +358,24 @@ getpass() { while :; do
 done; }
 
 getboxes() {
+	# Each entry in $mailboxes is a "clean<TAB>wire" pair: the clean name has
+	# any Courier/UW-IMAP-style "INBOX<delim>" namespace prefix stripped and
+	# its delimiter normalized to "/" (used for sorting, the sidebar label,
+	# and - for mbsync-backed accounts - the local Maildir layout); the wire
+	# name is what must actually be SELECTed on the server. For mbsync-backed
+	# (local) accounts the two are identical, since mbsync independently maps
+	# the server's real name onto that same clean local directory name. For
+	# "online" accounts there is no such intermediary, so the wire name keeps
+	# the server's real prefix/delimiter intact.
 	if [ -n "${force+x}" ]; then
-		mailboxes="$(printf "INBOX\\nDrafts\\nJunk\\nTrash\\nSent\\nArchive")"
+		mailboxes="$(printf "INBOX\\nDrafts\\nJunk\\nTrash\\nSent\\nArchive" | awk '{print $0"\t"$0}')"
 	else
 		info="$(curl --proxy "$proxy" --location-trusted -s -m 5 --user "$login:$(pass "$passprefix$fulladdr")" --url "${protocol:-imaps}://$imap:${iport:-993}")"
 		[ -z "$info" ] && errorexit
 		# Some servers (mbox-based Courier/UW-IMAP-style setups) prefix every
 		# personal folder with "INBOX<delim>" on the wire even though those
 		# folders are not actually nested under INBOX. NAMESPACE reports that
-		# prefix (if any), so it can be stripped before the delimiter is
-		# translated below; servers without NAMESPACE, or with an empty
+		# prefix (if any); servers without NAMESPACE, or with an empty
 		# personal-namespace prefix, are unaffected.
 		nsline="$(curl --proxy "$proxy" --location-trusted -s -m 5 --user "$login:$(pass "$passprefix$fulladdr")" --url "${protocol:-imaps}://$imap:${iport:-993}" -X 'NAMESPACE' 2>/dev/null | grep '^\* NAMESPACE' | head -n1)"
 		nsprefix="$(printf '%s\n' "$nsline" | sed -n 's/^\* NAMESPACE (("\([^"]*\)" *"[^"]*".*/\1/p')"
@@ -359,23 +385,23 @@ getboxes() {
 		mailboxes="$(echo "$info" | grep -v Noselect | tr -d '\r' | while IFS= read -r boxline; do
 			delim="$(printf '%s\n' "$boxline" | sed -n 's/^\* LIST ([^)]*) "\{0,1\}\([^" ]*\)"\{0,1\} .*/\1/p')"
 			name="$(printf '%s\n' "$boxline" | sed 's/.*\" //;s/\"//g')"
-			[ -n "$nsprefix" ] && name="${name#"$nsprefix"}"
-			# mbsync canonicalizes the server's hierarchy delimiter to "/" and
-			# (with "Subfolders Verbatim") lays out subfolders as real nested
-			# directories, so the mailbox name must match that here too.
+			clean="$name"
+			[ -n "$nsprefix" ] && clean="${clean#"$nsprefix"}"
 			if [ -n "$delim" ] && [ "$delim" != "NIL" ] && [ "$delim" != "/" ]; then
 				delimesc="$(printf '%s' "$delim" | sed 's/[.\\^$*[]/\\&/g')"
-				name="$(printf '%s\n' "$name" | sed "s#$delimesc#/#g")"
+				clean="$(printf '%s\n' "$clean" | sed "s#$delimesc#/#g")"
 			fi
-			printf '%s\n' "$name"
+			[ "$type" = "online" ] && printf '%s\t%s\n' "$clean" "$name" || printf '%s\t%s\n' "$clean" "$clean"
 		done)"
 	fi
-	[ "$type" = "pop" ] && mailboxes="INBOX"
+	[ "$type" = "pop" ] && mailboxes="$(printf 'INBOX\tINBOX')"
 	# Order the sidebar sensibly: INBOX first, then the common function
-	# folders in a fixed order, then everything else alphabetically.
-	mailboxes="$(printf '%s\n' "$mailboxes" | awk -F'/' '
+	# folders in a fixed order, then everything else alphabetically - ranked
+	# on the clean name so this is unaffected by a namespace prefix.
+	mailboxes="$(printf '%s\n' "$mailboxes" | awk -F'\t' '
 		{
-			top = tolower($1)
+			n = split($1, segs, "/")
+			top = tolower(segs[1])
 			if (top == "inbox")                    rank = 0
 			else if (top == "drafts")               rank = 1
 			else if (top == "sent")                 rank = 2
@@ -384,9 +410,28 @@ getboxes() {
 			else if (top == "archive" || top == "archives") rank = 5
 			else if (top == "templates")            rank = 6
 			else                                     rank = 9
-			printf "%d\t%s\t%s\n", rank, tolower($0), $0
+			printf "%d\t%s\t%s\n", rank, tolower($1), $0
 		}
-	' | sort -t "$(printf '\t')" -k1,1n -k2,2 | cut -f3)"
+	' | sort -t "$(printf '\t')" -k1,1n -k2,2 | cut -f3-)"
+	# The server reports non-ASCII names in IMAP's modified UTF-7 (RFC 3501
+	# 5.1.3). mbsync keeps that form on disk, so it's right for local
+	# accounts - but neomutt expects IMAP paths in its config as UTF-8 and
+	# encodes them itself, so an online account's wire name must be decoded
+	# or it gets encoded twice ("&APw-" -> "&-APw-") and doesn't exist.
+	[ "$type" = "online" ] && mailboxes="$(printf '%s\n' "$mailboxes" | perl -CS -MMIME::Base64 -ne '
+		chomp;
+		my ($clean, $wire) = split /\t/, $_, 2;
+		$wire =~ s{&([^-]*)-}{
+			my $b64 = $1;
+			if ($b64 eq "") { "&" }
+			else {
+				(my $m = $b64) =~ tr{,}{/};
+				$m .= "=" x ((4 - length($m) % 4) % 4);
+				join("", map { chr($_) } unpack("n*", MIME::Base64::decode_base64($m)));
+			}
+		}gex;
+		print "$clean\t$wire\n";
+	')"
 	for x in $(
 		sed -n "/^macro.* i[0-9] / s/\(^macro.* i\| .*\)//gp " "$muttrc" 2>/dev/null | sort -u
 		echo 0
@@ -397,11 +442,14 @@ getboxes() {
 	# Servers commonly hand back non-ASCII folder names in IMAP's modified
 	# UTF-7 (RFC 3501 5.1.3), and mbsync stores them on disk exactly as
 	# received (Subfolders Verbatim). The "=..." path below must therefore
-	# stay in that raw wire form, but named-mailboxes lets us additionally
+	# stay in that raw wire form (for online accounts it was decoded above,
+	# since neomutt encodes it itself), but named-mailboxes lets us additionally
 	# attach a decoded, human-readable label for the sidebar (%D) - just the
 	# leaf segment, indented and prefixed with a tree connector to show its
-	# nesting depth (the ancestors already have their own label line).
-	labels="$(printf '%s\n' "$mailboxes" | perl -CS -MMIME::Base64 -ne '
+	# nesting depth (the ancestors already have their own label line). Built
+	# from the clean name, so an online account's namespace prefix never
+	# leaks into the label.
+	labels="$(printf '%s\n' "$mailboxes" | cut -f1 | perl -CS -MMIME::Base64 -ne '
 		chomp;
 		my @segs = split m{/}, $_, -1;
 		my $depth = $#segs;
@@ -423,13 +471,13 @@ getboxes() {
 	')"
 	toappend="named-mailboxes $(paste -d' ' \
 		<(echo "$labels" | sed "s/^/\"/;s/\$/\"/;s/'/\\\'/g") \
-		<(echo "$mailboxes" | sed "s/^/\"=/;s/\$/\"/;s/'/\\\'/g") |
+		<(echo "$mailboxes" | cut -f2 | sed "s/^/\"=/;s/\$/\"/;s/'/\\\'/g") |
 		paste -sd' ' -)"
 }
 
 finalize() {
 	echo "$toappend" >>"$accdir/$fulladdr.muttrc"
-	[ "$type" != "online" ] && echo "$mailboxes" | xargs -I {} mkdir -p "$maildir/$fulladdr/{}/cur" "$maildir/$fulladdr/{}/tmp" "$maildir/$fulladdr/{}/new"
+	[ "$type" != "online" ] && echo "$mailboxes" | cut -f1 | xargs -I {} mkdir -p "$maildir/$fulladdr/{}/cur" "$maildir/$fulladdr/{}/tmp" "$maildir/$fulladdr/{}/new"
 	mkdir -p "$cachedir/$safename/bodies"
 	genunified
 	echo "$fulladdr (account #$idnum) added successfully."

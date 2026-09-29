@@ -2,3 +2,11 @@ set imap_user = "$login"
 set imap_pass = "`pass $passprefix$fulladdr`"
 set ssl_starttls = yes
 set ssl_force_tls = yes
+# All of an online account's folders share the single lmdb env at
+# $header_cache (there's no per-folder Maildir to key separate cache files
+# off), and neomutt's lmdb hcache backend has a track record of segfaulting
+# (see e.g. neomutt/neomutt#267, #2148) - opening a second folder in that
+# shared env is exactly when it crashed here. Disable header caching for
+# online accounts entirely rather than risk it; the mail is fetched live
+# from the server on every open anyway.
+unset header_cache
