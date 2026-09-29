@@ -172,7 +172,12 @@ genunified() {
 	# from an older mw would otherwise never get updated again.
 	sed -ibu "/^macro index,pager iu /d" "$muttrc" 2>/dev/null
 	rm -f "$muttrc"bu
-	echo "macro index,pager iu '<sync-mailbox><enter-command>source $unifiedmuttrc<enter><check-stats>' \"unified inbox overview\"" >>"$muttrc"
+	# No leading <sync-mailbox> here (unlike the "i<N>" macros): "iu" never
+	# changes which mailbox is open, so there's nothing to flush before it
+	# runs - and <sync-mailbox> would, with a message pending deletion,
+	# raise an interactive "purge deleted message?" prompt that swallows
+	# the rest of the macro's keystrokes instead of running them.
+	echo "macro index,pager iu '<enter-command>source $unifiedmuttrc<enter><check-stats>' \"unified inbox overview\"" >>"$muttrc"
 	# "Load the unified view at startup" preference: $unifiedstartup, if the
 	# caller set it (via "mw -U startup"/"mw -U nostartup"), turns it on/off
 	# for good; otherwise keep whatever was set before, so a plain
