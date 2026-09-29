@@ -139,6 +139,7 @@ genunified() {
 	mkdir -p "${unifiedmuttrc%/*}" "$identitydir"
 	{
 		echo "unhook folder-hook"
+		echo "unhook account-hook"
 		echo "unmailboxes *"
 		sed -n 's/^macro index,pager i\([0-9][0-9]*\) .*"switch to \(.*\)"$/\1 \2/p' "$muttrc" 2>/dev/null |
 			sort -n -k1,1 | while read -r idnum addr; do
@@ -164,6 +165,19 @@ genunified() {
 				grep '^set my_' "$muttshare/switch.muttrc"
 				sed '/^source .*\/switch\.muttrc$/d; /^named-mailboxes /d; /^mailboxes /d' "$acctfile"
 			} >"$identfile"
+			# An online account's INBOX in the overview is connected to
+			# without ever being entered - already while the named-mailboxes
+			# line below is parsed, and later for the sidebar counts - so
+			# the folder-hook below never runs for it, and neomutt would use
+			# whatever imap_user/imap_pass the current account left behind
+			# and prompt for the password. account-hook runs before every
+			# connection to that account, but only if it is already defined
+			# by then, hence it has to come first. neomutt matches it
+			# against the login with a raw "@" (the URL has "%40") and may
+			# omit the port, so the pattern accepts either.
+			creds="$(grep -E '^set imap_(user|pass) = ' "$acctfile" | paste -sd';' -)"
+			[ -n "$creds" ] && printf "account-hook '%s' '%s'\n" \
+				"$(printf '%s' "$escfolder" | sed 's/%40/(%40|@)/; s/:\([0-9]*\)$/(:\1)?/')" "$creds"
 			printf 'named-mailboxes "%s %s" "%s/INBOX"\n' "$idnum" "$addr" "$folder"
 			# No leading "^": neomutt treats a folder-hook pattern starting
 			# with "^" as its own current-mailbox path shortcut rather than
