@@ -340,7 +340,8 @@ delete() {
 
 	sed -ibu "/IMAPStore $fulladdr-remote$/,/# End profile/d" "$mbsyncrc" 2>/dev/null
 	rm -f "$mbsyncrc"bu
-	rm -rf "${cachedir:?}/${fulladdr:?}" "$accdir/$fulladdr.muttrc" "$accdir/"[0-9]-"$fulladdr.muttrc"
+	safename="$(echo "$fulladdr" | sed 's/@/_/g')"
+	rm -rf "${cachedir:?}/${safename:?}" "$accdir/$fulladdr.muttrc" "$accdir/"[0-9]-"$fulladdr.muttrc"
 	sed -ibu "/\([0-9]-\)\?$fulladdr.muttrc/d" "$muttrc" 2>/dev/null
 	rm -f "$muttrc"bu
 	sed -ibu "/^set $(labelvar "$fulladdr") = /d" "$labelsmuttrc" 2>/dev/null
@@ -348,7 +349,7 @@ delete() {
 	[ -f "$msmtprc" ] && delacctblock "$msmtprc" "$fulladdr"
 	[ -f "$mpoprc" ] && delacctblock "$mpoprc" "$fulladdr"
 	pass rm -f "$passprefix$fulladdr" >/dev/null 2>&1
-	[ -n "${purge+x}" ] && safename="$(echo $fulladdr | sed 's/@/_/g')" && rm -rf "${cachedir:?}/${safename:?}" "${maildir:?}/${fulladdr:?}"
+	[ -n "${purge+x}" ] && rm -rf "${maildir:?}/${fulladdr:?}"
 	genunified
 }
 
