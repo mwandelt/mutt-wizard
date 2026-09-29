@@ -10,6 +10,7 @@ muttrc="${XDG_CONFIG_HOME:-$HOME/.config}/mutt/muttrc"
 accdir="${XDG_CONFIG_HOME:-$HOME/.config}/mutt/accounts"
 unifiedmuttrc="${XDG_CONFIG_HOME:-$HOME/.config}/mutt/unified.muttrc"
 identitydir="${XDG_CONFIG_HOME:-$HOME/.config}/mutt/identity"
+unifiedstartupflag="${XDG_CONFIG_HOME:-$HOME/.config}/mutt/.unified-startup"
 msmtprc="${XDG_CONFIG_HOME:-$HOME/.config}/msmtp/config"
 msmtplog="${XDG_STATE_HOME:-$HOME/.local/state}/msmtp/msmtp.log"
 mbsyncrc="${MBSYNCRC:-$HOME/.mbsyncrc}"
@@ -178,6 +179,32 @@ genunified() {
 	sed -ibu "/^macro index,pager iu /d" "$muttrc" 2>/dev/null
 	rm -f "$muttrc"bu
 	echo "macro index,pager iu '<sync-mailbox><enter-command>source $unifiedmuttrc<enter><check-stats><sidebar-next-new><sidebar-open>' \"unified inbox overview (new mail only)\"" >>"$muttrc"
+	# "Load the unified view at startup" preference: $unifiedstartup, if the
+	# caller set it (via "mw -U startup"/"mw -U nostartup"), turns it on/off
+	# for good; otherwise keep whatever was set before, so a plain
+	# "mw -a"/"-d"/"-r" (which all call this too) doesn't silently drop it.
+	# Recorded in $unifiedstartupflag rather than by just checking whether
+	# the muttrc currently has the line below: the account that used to be
+	# default can be deleted (or reordered away), leaving nowhere to put
+	# the line for a run or two, and the preference must survive that gap
+	# rather than quietly reverting to "off".
+	case "${unifiedstartup:-}" in
+	startup) : >"$unifiedstartupflag" ;;
+	nostartup) rm -f "$unifiedstartupflag" ;;
+	esac
+	sed -ibu "/# unified-startup$/d" "$muttrc" 2>/dev/null
+	rm -f "$muttrc"bu
+	if [ -f "$unifiedstartupflag" ]; then
+		# Has to sit right after the default account's own
+		# "source .../accounts/....muttrc" line, so that line's own
+		# mailboxes get replaced by the unified list and not the other
+		# way round. Marked with a trailing comment so it's
+		# self-identifying and can be found and re-homed on every run.
+		awk -v l="source $unifiedmuttrc # unified-startup" '
+			{ print }
+			/^source.*\/accounts\/.*\.muttrc$/ && !done { print l; done=1 }
+		' "$muttrc" >"$muttrc.mwtmp" && mv "$muttrc.mwtmp" "$muttrc"
+	fi
 }
 
 getprofiles() {
@@ -454,6 +481,8 @@ Main actions:
   -T			Toggle automatic mailsync
   -r			Reorder account numbers
   -U			Regenerate the "iu" unified inbox overview
+  -U startup		...and also have neomutt open it at startup
+  -U nostartup		...and have neomutt start in your default account again
 
 Options allowed with -a:
   -u	Account login name if not full address
@@ -578,7 +607,20 @@ while getopts "rfpXlhodTUYD:y:i:I:s:S:u:a:n:P:x:m:t:R:" o; do case "${o}" in
 		cronmin="$OPTARG"
 		;;
 	T) setact toggle ;;
-	U) setact unified ;;
+	U)
+		setact unified
+		# getopts has no notion of an optional argument, so peek at the
+		# next positional: "mw -U" alone (nothing there, or the next
+		# option) just regenerates; "mw -U startup"/"mw -U nostartup"
+		# additionally turns the "load unified view at startup"
+		# preference on/off.
+		case "${!OPTIND-}" in
+		startup | nostartup)
+			unifiedstartup="${!OPTIND}"
+			OPTIND=$((OPTIND + 1))
+			;;
+		esac
+		;;
 	h) setact info ;;
 	\?)
 		echo "See \`$(basename $0) -h\` for possible options and help."
@@ -598,7 +640,14 @@ sync)
 	;;
 toggle) togglecron ;;
 reorder) reorder ;;
-unified) genunified && echo "Unified inbox overview (re)generated." ;;
+unified)
+	genunified
+	case "${unifiedstartup:-}" in
+	startup) echo "Unified inbox overview regenerated; neomutt will now open it at startup." ;;
+	nostartup) echo "Unified inbox overview regenerated; neomutt will start in your default account as before." ;;
+	*) echo "Unified inbox overview (re)generated." ;;
+	esac
+	;;
 info)
 	mwinfo
 	exit 1
