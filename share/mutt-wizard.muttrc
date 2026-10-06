@@ -73,8 +73,13 @@ bind pager \005 next-line		# Mouse wheel
 bind editor <Tab> complete-query
 
 macro index,pager gi "<change-folder>=INBOX<enter>" "go to inbox"
-macro index,pager Mi ";<save-message>=INBOX<enter>" "move mail to inbox"
-macro index,pager Ci ";<copy-message>=INBOX<enter>" "copy mail to inbox"
+# Move/copy macros are defined separately for index and pager:
+# ";" (<tag-prefix>) is a generic-menu binding, which the pager doesn't
+# inherit, so it would abort the pager macro with "Key is not bound".
+macro index Mi ";<save-message>=INBOX<enter>" "move mail to inbox"
+macro pager Mi "<save-message>=INBOX<enter>" "move mail to inbox"
+macro index Ci ";<copy-message>=INBOX<enter>" "copy mail to inbox"
+macro pager Ci "<copy-message>=INBOX<enter>" "copy mail to inbox"
 # The folders below differ per account (an online account may need a
 # namespace prefix, e.g. "=INBOX.Trash"), so they come from $my_* variables
 # set in each account's muttrc. Single quotes keep $my_* from being expanded
@@ -82,20 +87,30 @@ macro index,pager Ci ";<copy-message>=INBOX<enter>" "copy mail to inbox"
 # The target must not contain an <enter> of its own - the trailing macro
 # <enter> confirms the pushed prompt instead.
 macro index,pager gd '<enter-command>push "<change-folder>$my_drafts"<enter><enter>' "go to drafts"
-macro index,pager Md '<enter-command>push ";<save-message>$my_drafts"<enter><enter>' "move mail to drafts"
-macro index,pager Cd '<enter-command>push ";<copy-message>$my_drafts"<enter><enter>' "copy mail to drafts"
+macro index Md '<enter-command>push ";<save-message>$my_drafts"<enter><enter>' "move mail to drafts"
+macro pager Md '<enter-command>push "<save-message>$my_drafts"<enter><enter>' "move mail to drafts"
+macro index Cd '<enter-command>push ";<copy-message>$my_drafts"<enter><enter>' "copy mail to drafts"
+macro pager Cd '<enter-command>push "<copy-message>$my_drafts"<enter><enter>' "copy mail to drafts"
 macro index,pager gj '<enter-command>push "<change-folder>$my_junk"<enter><enter>' "go to junk"
-macro index,pager Mj '<enter-command>push ";<save-message>$my_junk"<enter><enter>' "move mail to junk"
-macro index,pager Cj '<enter-command>push ";<copy-message>$my_junk"<enter><enter>' "copy mail to junk"
+macro index Mj '<enter-command>push ";<save-message>$my_junk"<enter><enter>' "move mail to junk"
+macro pager Mj '<enter-command>push "<save-message>$my_junk"<enter><enter>' "move mail to junk"
+macro index Cj '<enter-command>push ";<copy-message>$my_junk"<enter><enter>' "copy mail to junk"
+macro pager Cj '<enter-command>push "<copy-message>$my_junk"<enter><enter>' "copy mail to junk"
 macro index,pager gt '<enter-command>push "<change-folder>$my_trash"<enter><enter>' "go to trash"
-macro index,pager Mt '<enter-command>push ";<save-message>$my_trash"<enter><enter>' "move mail to trash"
-macro index,pager Ct '<enter-command>push ";<copy-message>$my_trash"<enter><enter>' "copy mail to trash"
+macro index Mt '<enter-command>push ";<save-message>$my_trash"<enter><enter>' "move mail to trash"
+macro pager Mt '<enter-command>push "<save-message>$my_trash"<enter><enter>' "move mail to trash"
+macro index Ct '<enter-command>push ";<copy-message>$my_trash"<enter><enter>' "copy mail to trash"
+macro pager Ct '<enter-command>push "<copy-message>$my_trash"<enter><enter>' "copy mail to trash"
 macro index,pager gs '<enter-command>push "<change-folder>$my_sent"<enter><enter>' "go to sent"
-macro index,pager Ms '<enter-command>push ";<save-message>$my_sent"<enter><enter>' "move mail to sent"
-macro index,pager Cs '<enter-command>push ";<copy-message>$my_sent"<enter><enter>' "copy mail to sent"
+macro index Ms '<enter-command>push ";<save-message>$my_sent"<enter><enter>' "move mail to sent"
+macro pager Ms '<enter-command>push "<save-message>$my_sent"<enter><enter>' "move mail to sent"
+macro index Cs '<enter-command>push ";<copy-message>$my_sent"<enter><enter>' "copy mail to sent"
+macro pager Cs '<enter-command>push "<copy-message>$my_sent"<enter><enter>' "copy mail to sent"
 macro index,pager ga '<enter-command>push "<change-folder>$my_archive"<enter><enter>' "go to archive"
-macro index,pager Ma '<enter-command>push ";<save-message>$my_archive"<enter><enter>' "move mail to archive"
-macro index,pager Ca '<enter-command>push ";<copy-message>$my_archive"<enter><enter>' "copy mail to archive"
+macro index Ma '<enter-command>push ";<save-message>$my_archive"<enter><enter>' "move mail to archive"
+macro pager Ma '<enter-command>push "<save-message>$my_archive"<enter><enter>' "move mail to archive"
+macro index Ca '<enter-command>push ";<copy-message>$my_archive"<enter><enter>' "copy mail to archive"
+macro pager Ca '<enter-command>push "<copy-message>$my_archive"<enter><enter>' "copy mail to archive"
 
 #set crypt_auto_sign = yes
 #set crypt_opportunistic_encrypt = yes
