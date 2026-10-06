@@ -9,7 +9,9 @@ cachedir="${XDG_CACHE_HOME:-$HOME/.cache}/mutt-wizard"
 muttrc="${XDG_CONFIG_HOME:-$HOME/.config}/mutt/muttrc"
 accdir="${XDG_CONFIG_HOME:-$HOME/.config}/mutt/accounts"
 unifiedmuttrc="${XDG_CONFIG_HOME:-$HOME/.config}/mutt/unified.muttrc"
+# Only removed: where older versions of genunified kept identity copies.
 identitydir="${XDG_CONFIG_HOME:-$HOME/.config}/mutt/identity"
+identity="$prefix/lib/mutt-wizard/identity"
 labelsmuttrc="${XDG_CONFIG_HOME:-$HOME/.config}/mutt/labels.muttrc"
 unifiedstartupflag="${XDG_CONFIG_HOME:-$HOME/.config}/mutt/.unified-startup"
 msmtprc="${XDG_CONFIG_HOME:-$HOME/.config}/msmtp/config"
@@ -126,9 +128,8 @@ prepmutt() {
 # contain "@" or ".".
 labelvar() { printf 'my_label_%s' "$(printf '%s' "$1" | tr -c 'A-Za-z0-9' '_')"; }
 
-# Regenerates $unifiedmuttrc (and the per-account files under $identitydir it
-# points at) from scratch: a named-mailboxes entry for every account's INBOX
-# (whatever the account's own "set folder" resolved to, local Maildir or
+# Regenerates $unifiedmuttrc from scratch: a named-mailboxes entry for every
+# account's INBOX (whatever the account's own "set folder" resolved to, local Maildir or
 # remote IMAP URL alike), plus a folder-hook that fixes up the account's
 # identity (from/sendmail/folder/spool_file/...) the moment its tree is
 # entered - without resetting the mailboxes list, so the overview stays in
@@ -141,6 +142,9 @@ labelvar() { printf 'my_label_%s' "$(printf '%s' "$1" | tr -c 'A-Za-z0-9' '_')";
 # account. Called after any change to the account list so the "iu" overview
 # macro (wired into $muttrc below, once) always reflects the current
 # accounts.
+# The identity itself is not copied in here: the hooks pipe the account's
+# muttrc through $identity every time they run, so edits to it take effect
+# without rerunning mw.
 # The sidebar label after the number is read from a $my_label_* variable
 # (see labelvar) set in $labelsmuttrc, which belongs to the user: mw only
 # appends a default (the full address) for accounts that don't have an
@@ -150,7 +154,7 @@ labelvar() { printf 'my_label_%s' "$(printf '%s' "$1" | tr -c 'A-Za-z0-9' '_')";
 # up an edit without rerunning mw.
 genunified() {
 	rm -rf "$identitydir"
-	mkdir -p "${unifiedmuttrc%/*}" "$identitydir"
+	mkdir -p "${unifiedmuttrc%/*}"
 	[ -f "$labelsmuttrc" ] || printf '%s\n' \
 		'# vim: filetype=neomuttrc' \
 		'# Sidebar labels for the unified inbox overview ("iu"), one per account.' \
@@ -167,23 +171,6 @@ genunified() {
 			folder="$(sed -n 's/^set folder = "\(.*\)"$/\1/p' "$acctfile" | head -n1)"
 			[ -z "$folder" ] && continue
 			escfolder="$(printf '%s' "$folder" | sed 's/[.\\^$*[]/\\&/g')"
-			identfile="$identitydir/$addr.muttrc"
-			# Strip the switch.muttrc include (unmailboxes *, unset
-			# sidebar_new_mail_only) and this account's own mailbox list -
-			# "named-mailboxes" for accounts added by current mw, or the
-			# older plain "mailboxes" form for accounts added before that
-			# feature existed - the things that would undo the unified
-			# overview - and keep everything else (real_name/from/sendmail/
-			# folder/spool_file/trash/...) as the identity a folder-hook
-			# needs.
-			# The switch.muttrc defaults for the $my_* folder macros are kept
-			# though, ahead of the account's own values: accounts added
-			# before those existed don't set them, and would otherwise
-			# inherit whatever the previously entered account set.
-			{
-				grep '^set my_' "$muttshare/switch.muttrc"
-				sed '/^source .*\/switch\.muttrc$/d; /^named-mailboxes /d; /^mailboxes /d' "$acctfile"
-			} >"$identfile"
 			# An online account's INBOX in the overview is connected to
 			# without ever being entered - already while the named-mailboxes
 			# line below is parsed, and later for the sidebar counts - so
@@ -194,9 +181,10 @@ genunified() {
 			# by then, hence it has to come first. neomutt matches it
 			# against the login with a raw "@" (the URL has "%40") and may
 			# omit the port, so the pattern accepts either.
-			creds="$(grep -E '^set imap_(user|pass) = ' "$acctfile" | paste -sd';' -)"
-			[ -n "$creds" ] && printf "account-hook '%s' '%s'\n" \
-				"$(printf '%s' "$escfolder" | sed 's/%40/(%40|@)/; s/:\([0-9]*\)$/(:\1)?/')" "$creds"
+			grep -qE '^set imap_(user|pass) = ' "$acctfile" &&
+				printf "account-hook '%s' 'source \"%s -c %s |\"'\n" \
+					"$(printf '%s' "$escfolder" | sed 's/%40/(%40|@)/; s/:\([0-9]*\)$/(:\1)?/')" \
+					"$identity" "$acctfile"
 			label="$(labelvar "$addr")"
 			grep -q "^set $label = " "$labelsmuttrc" ||
 				printf 'set %s = "%s"\n' "$label" "$addr" >>"$labelsmuttrc"
@@ -206,7 +194,8 @@ genunified() {
 			# a regex anchor, which errors out before regex matching ever
 			# happens. The escaped absolute path is specific enough on its
 			# own as an unanchored match.
-			printf "folder-hook '%s/' 'source \"%s\"'\n" "$escfolder" "$identfile"
+			printf "folder-hook '%s/' 'source \"%s %s %s |\"'\n" \
+				"$escfolder" "$identity" "$muttshare/switch.muttrc" "$acctfile"
 		done
 	} >"$unifiedmuttrc"
 	mkdir -p "${muttrc%/*}"

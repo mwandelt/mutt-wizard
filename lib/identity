@@ -1,0 +1,25 @@
+#!/bin/sh
+
+# Prints an account's identity for the unified inbox overview, for neomutt to
+# source as a pipe ("source \"identity ... |\"") from the hooks mw puts in
+# unified.muttrc. Reading the account's muttrc anew each time means edits to
+# it take effect without regenerating the overview.
+#
+#   identity <switch.muttrc> <account muttrc>     the identity a folder-hook
+#                                                  needs
+#   identity -c <account muttrc>                   only the IMAP credentials,
+#                                                  for an account-hook
+#
+# The identity is the account's muttrc minus the switch.muttrc include
+# (unmailboxes *, ...) and its own mailbox list - "named-mailboxes", or the
+# older plain "mailboxes" form - the things that would undo the overview. The
+# switch.muttrc defaults for the $my_* folder macros come first, since
+# accounts added before those existed don't set them and would otherwise
+# inherit whatever the previously entered account set.
+
+if [ "$1" = "-c" ]; then
+	grep -E '^set imap_(user|pass) = ' "$2"
+	exit 0
+fi
+grep '^set my_' "$1"
+sed '/^source .*\/switch\.muttrc$/d; /^named-mailboxes /d; /^mailboxes /d' "$2"
