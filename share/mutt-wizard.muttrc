@@ -48,8 +48,8 @@ bind pager,attach h exit
 bind pager j next-line
 bind pager k previous-line
 bind pager l view-attachments
-bind index D delete-message
-bind index U undelete-message
+bind index,pager D delete-message
+bind index,pager U undelete-message
 bind index L limit
 bind index h noop
 bind index l display-message
