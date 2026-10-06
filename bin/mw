@@ -163,6 +163,15 @@ genunified() {
 		echo "unhook folder-hook"
 		echo "unhook account-hook"
 		echo "unmailboxes *"
+		# neomutt only queues the STATUS commands behind the sidebar
+		# counts, and sends them along with the next command on the same
+		# connection or once the queue is full. An online account's
+		# connection in the overview has no open mailbox whose regular
+		# NOOP/IDLE would flush it, so its counts could stay blank for
+		# many checks. With no pipeline every check flushes the previous
+		# one. The queue size is fixed when a connection is opened, so
+		# this has to come before the named-mailboxes lines below.
+		echo "set imap_pipeline_depth = 0"
 		echo "source \"$labelsmuttrc\""
 		sed -n 's/^macro index,pager i\([0-9][0-9]*\) .*"switch to \(.*\)"$/\1 \2/p' "$muttrc" 2>/dev/null |
 			sort -n -k1,1 | while read -r idnum addr; do
