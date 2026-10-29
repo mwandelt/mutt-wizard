@@ -104,7 +104,7 @@ prepmpop() {
 }
 
 prepimapnotify() {
-  mkdir -p "$imapnotify" ; envsubst < "$imapnotifytemp" >> "$imapnotify/$fulladdr.yaml"
+  mkdir -p "$imapnotify" ; envsubst < "$imapnotifytemp" > "$imapnotify/$fulladdr.yaml"
 }
 
 prepmutt() {
@@ -346,6 +346,7 @@ delete() {
 	rm -f "$labelsmuttrc"bu
 	[ -f "$msmtprc" ] && delacctblock "$msmtprc" "$fulladdr"
 	[ -f "$mpoprc" ] && delacctblock "$mpoprc" "$fulladdr"
+	rm -f "$imapnotify/$fulladdr.yaml"
 	pass rm -f "$passprefix$fulladdr" >/dev/null 2>&1
 	[ -n "${purge+x}" ] && rm -rf "${maildir:?}/${fulladdr:?}"
 	genunified
